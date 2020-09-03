@@ -1,0 +1,245 @@
+---
+title: "Gustavo NFL"
+author: "Gustavo Ec"
+date: "8/29/2020"
+output: html_document
+---
+
+Usamos la siguiente paqueteria para nuestro objetivo:
+```{r , echo=FALSE}
+library(rtweet)
+library(tidyverse)
+library(tidytext)
+library(tm)
+library(lubridate)
+library(zoo)
+library(scales)
+```
+
+Proyecto Final: Gustavo Espinosa Chavez.
+La Liga Nacional de Fútbol (NFL, por sus siglas en ingles) es una liga de fútbol americano profesional que consta de 32 equipos, divididos en partes iguales entre la Conferencia Nacional de Fútbol y la Conferencia de Fútbol Americano.
+
+OBTENER INFORMACION:
+Ahora, bajamos 18 mil Tweets del siguiente concepto: #NFL, usando el siguiente codigo:
+
+```{r}
+nfl_0 <- search_tweets(
+"#NFL", n = 18000, retryonratelimit = TRUE
+)
+```
+
+PROCESO DE MANEJO DE DATAFRAME:
+Ahora, separamos las columnas fecha y hora y las llevamos a tipo numerico:
+Separar fecha: created_at
+
+```{r, echo=FALSE}
+nfl_0 <- 
+  nfl_0 %>%
+  separate(created_at, into = c("Fecha", "Hora"), sep = " ", remove = FALSE) %>% separate(Fecha, into = c("Periodo","Mes","Dia"), sep = "-",
+         remove = FALSE)
+```
+
+Separar hora:
+
+```{r, echo=FALSE}
+nfl_0 <- nfl_0 %>% separate(Hora, into = c("horas","minutos","segundos"), sep = ":",remove = FALSE)
+```
+
+Vamos a convertir a tipo numerico las columnas generadas:
+
+```{r, echo=FALSE}
+nfl_0$Mes <- as.numeric(nfl_0$Mes)
+nfl_0$Periodo <- as.numeric(nfl_0$Periodo)
+nfl_0$Dia <- as.numeric(nfl_0$Dia)
+nfl_0$horas <- as.numeric(nfl_0$horas)
+nfl_0$minutos <- as.numeric(nfl_0$minutos)
+nfl_0$segundos <- as.numeric(nfl_0$segundos)
+```
+
+Posteriormente podemos verificar si el cambio es correcto:
+
+```{r, echo=FALSE}
+class(nfl_0$Periodo)
+class(nfl_0$Mes)
+class(nfl_0$Dia)
+class(nfl_0$horas)
+class(nfl_0$minutos)
+class(nfl_0$segundos)
+```
+Confirmado, si es correcto. 
+
+
+Filtramos y generamos una nueva dataframe que tenga únicamente los idiomas ingles y espanol:
+```{r, echo=FALSE}
+nfl_1 <- nfl_0 %>% filter(nfl_0$lang =="en" | nfl_0$lang=="es")
+```
+
+Despues de correr este codigo podemos observar que pasamos de tener 17,444 observaciones a tener un total de 15,450 observaciones en la dataframe (nfl_1). Es una diferencia de 1,994 tweets. Esto es debido a que la NFL es una liga deportiva que predominantemente tiene seguidores de habla inglesa en los Estados Unidos de Norteamerica, asi como en otros paises. Proporcionalmente, es reducido el numero de seguidores que no son de habla inglesa. 
+
+
+Ahora, generamos nuestra dataframe con las columnas que serviran para nuestro objetivo: Fecha, Periodo, Mes, Dia, Hora, horas, minutos, segundos, text, lenguaje:
+
+```{r, echo=FALSE}
+nfl_2 <- data.frame(Fecha=nfl_1$Fecha,Periodo=nfl_1$Periodo,Mes=nfl_1$Mes,Dia=nfl_1$Dia,Hora=nfl_1$Hora,horas=nfl_1$horas,minutos=nfl_1$minutos,segundos=nfl_1$segundos,Text=nfl_1$text,lenguaje=nfl_1$lang)
+```
+
+
+En este momento ya podemos exportar el dataframe con la finalidad de publicacion: 
+
+```{r, echo=FALSE}
+write.csv(x = nfl_2, file = "nfl_2.csv", row.names = FALSE)
+```
+
+Ahora, descargamos el lexico "es", "en"
+
+```{r, echo=FALSE}
+download.file("https://raw.githubusercontent.com/jboscomendoza/rpubs/master/sentimientos_afinn/lexico_afinn.en.es.csv",
+              "lexico_afinn.en.es.csv")
+```
+
+Ahora, importamos el lexico a R:
+```{r, echo=FALSE}
+afinn <- read.csv("lexico_afinn.en.es.csv", stringsAsFactors = F, fileEncoding = "latin1") %>% 
+  tbl_df()
+```
+
+Corremos afinn
+```{r, echo=FALSE}
+afinn
+```
+
+Ahora, preparamos el tema, consultar ggplot2:
+
+```{r, echo=FALSE}
+tema_graf <-
+  theme_minimal() +
+  theme(text = element_text(family = "serif"),
+        panel.grid.minor = element_blank(),
+        strip.background = element_rect(fill = "#EBEBEB", colour = NA),
+        legend.position = "none",
+        legend.box.background = element_rect(fill = "#EBEBEB", colour = NA))
+```
+
+Ahora, realizamos la calificacion de las palabras de Text:
+
+```{r, echo=FALSE}
+nfl_3 <- 
+  nfl_2 %>%
+  unnest_tokens(input = "Text", output = "Palabra") %>%
+  inner_join(afinn, ., by = "Palabra") %>%
+  mutate(Tipo = ifelse(Puntuacion > 0, "Positiva", "Negativa")) 
+
+```
+
+Visualizacion Grafica de sentimientos por idioma "lenguaje":
+```{r}
+ggplot(data = nfl_3) +
+  geom_bar(mapping = aes(x = lenguaje))
+```
+
+Visualización de sentimientos por Tipo:
+```{r, echo=FALSE}
+ggplot(data = nfl_3) +
+  geom_bar(mapping = aes(x = Tipo))
+```
+
+
+
+Visualizacion de sentimientos por palabra:
+```{r, echo=FALSE}
+map(c("Positiva", "Negativa"), function(sentimiento) {
+  nfl_3 %>%
+    filter(Tipo ==  sentimiento) %>%
+    group_by(lenguaje) %>%
+    count(Palabra, sort = T) %>%
+    top_n(n = 10, wt = n) %>%
+    ggplot() +
+    aes(Palabra, n, fill = lenguaje) +
+    geom_col() +
+    facet_wrap("lenguaje", scales = "free") +
+    scale_y_continuous(expand = c(0, 0)) +
+    coord_flip() +
+    labs(title = sentimiento) +
+    tema_graf
+})
+```
+
+Con esta grafica podemos visualizar que el impacto de #NFL es positivo en general. Ademas, si hacemos la diferenciacion por idioma, nos damos cuenta que en espanol tuvo cero impacto. 
+
+Este analisis es cuantitativo basado en las graficas. Ahora, proporcionemos analisis cualitativo. 
+
+Espanol positivo:
+```{r, echo=FALSE}
+sum((nfl_3$lenguaje=="es") & (nfl_3$Tipo=="Positiva"))
+sum((nfl_3$lenguaje=="es") & (nfl_3$Tipo=="Negativa"))
+sum((nfl_3$lenguaje=="en") & (nfl_3$Tipo=="Positiva"))
+sum((nfl_3$lenguaje=="en") & (nfl_3$Tipo=="Negativa"))
+```
+
+Filtramos la palabra NO:
+```{r, echo=FALSE}
+nfl_3 <- nfl_3 %>%
+  filter(Palabra != "no")
+```
+
+
+Visualizacion de sentimientos por palabra:
+```{r, echo=FALSE}
+map(c("Positiva", "Negativa"), function(sentimiento) {
+  nfl_3 %>%
+    filter(Tipo ==  sentimiento) %>%
+    group_by(lenguaje) %>%
+    count(Palabra, sort = T) %>%
+    top_n(n = 10, wt = n) %>%
+    ggplot() +
+    aes(Palabra, n, fill = lenguaje) +
+    geom_col() +
+    facet_wrap("lenguaje", scales = "free") +
+    scale_y_continuous(expand = c(0, 0)) +
+    coord_flip() +
+    labs(title = sentimiento) +
+    tema_graf
+})
+```
+
+
+Observamos con esta tabla una observacion mas precisa con los conceptos clave que definieron la positividad o negatividad del evento. Considerando de manera separada a los idiomas en cuestion. 
+
+Analicemos el impacto positivo y negativo que tuvo el evento NFL en ambos lenguajes por dia:
+
+```{r, echo=FAlSE}
+ggplot(data = nfl_3) +
+  geom_bar(mapping = aes(x = Dia)) + facet_wrap(Tipo ~ lenguaje, nrow = 2)
+```
+  
+Observamos que la cantidad de tweets va disminuyendo conforme la fecha del evento se va alejando. 
+
+
+FIN.
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
